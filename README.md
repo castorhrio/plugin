@@ -1,136 +1,65 @@
-# 浏览器插件模板
+# Media Sniffer - 媒体资源嗅探插件
 
-基于 **Manifest V3** 的浏览器插件基础框架，适用于 Chrome、Edge、Arc 等 Chromium 内核浏览器。
+基于 **Manifest V3** 的浏览器插件，自动嗅探并下载网页中的图片、音频、视频等媒体资源。
+
+## 功能特性
+
+- **自动扫描**：页面加载后自动检测媒体资源
+- **多类型支持**：图片（jpg/png/gif/webp/svg 等）、视频（mp4/webm/mov 等）、音频（mp3/wav/aac 等）
+- **智能识别**：支持 `<img>`、`<video>`、`<audio>`、CSS 背景图、懒加载属性、JSON-LD 等多种来源
+- **网络拦截**：拦截 fetch/XHR 请求捕获动态加载的资源
+- **分类过滤**：按图片/视频/音频分类查看
+- **一键下载**：单个下载或批量全部下载
+- **图片预览**：点击预览按钮在新标签页查看图片
 
 ## 目录结构
 
 ```
 plugin/
-├── manifest.json      # 插件配置文件（必需）
+├── manifest.json      # 插件配置
 ├── background.js      # Service Worker 后台脚本
-├── content.js         # 内容脚本（注入网页）
+├── content.js         # 内容脚本（媒体扫描）
 ├── content.css        # 内容脚本样式
 ├── popup.html         # 弹窗页面
-├── popup.js           # 弹窗逻辑
+├── popup.js           # 弹窗逻辑（资源列表+下载）
 ├── popup.css          # 弹窗样式
-├── icons/             # 图标文件夹
-│   ├── icon16.png
-│   ├── icon48.png
-│   └── icon128.png
+├── icons/             # 图标
 └── README.md          # 说明文档
 ```
 
-## 文件说明
-
-| 文件 | 说明 |
-|------|------|
-| `manifest.json` | 插件核心配置，定义权限、脚本入口、图标等 |
-| `background.js` | 后台服务脚本，处理事件、消息通信、长期运行逻辑 |
-| `content.js` | 内容脚本，注入到网页中，可操作 DOM |
-| `content.css` | 内容脚本的样式文件 |
-| `popup.html` | 点击插件图标时弹出的窗口 |
-| `popup.js` | 弹窗的交互逻辑 |
-| `popup.css` | 弹窗的样式 |
-
-## 快速开始
-
-### 1. 安装到浏览器
+## 安装方法
 
 1. 打开 Chrome 浏览器，地址栏输入 `chrome://extensions/`
 2. 右上角开启 **开发者模式**
 3. 点击 **加载已解压的扩展程序**
 4. 选择本文件夹目录
 
-### 2. 测试功能
+## 使用方法
 
-- 点击插件图标，打开弹窗
-- 点击 **保存数据** / **读取数据** 测试 storage API
-- 打开任意网页，右下角会出现 🔧 浮动按钮
+1. 打开任意网页
+2. 点击浏览器工具栏中的插件图标
+3. 插件会自动扫描页面中的媒体资源
+4. 使用顶部分类按钮过滤资源类型
+5. 点击 **下载** 按钮下载单个资源
+6. 点击 **全部下载** 批量下载所有资源
+7. 点击图片资源旁的 **预览** 按钮在新标签页查看
 
-## 核心概念
+## 支持的资源类型
 
-### Manifest V3
+| 类型 | 扩展名 |
+|------|--------|
+| 图片 | jpg, jpeg, png, gif, webp, svg, bmp, ico, avif, tiff |
+| 视频 | mp4, webm, ogg, ogv, mov, avi, mkv, flv, wmv, m4v, 3gp |
+| 音频 | mp3, wav, ogg, oga, aac, flac, m4a, wma, opus |
 
-Google 推出的新版插件规范，主要变化：
-- `background page` → `service worker`
-- 禁止远程执行代码
-- 更严格的权限管理
+## 资源检测方式
 
-### 三种脚本类型
-
-| 类型 | 运行环境 | 权限 |
-|------|----------|------|
-| **Background** | 插件后台 | 完整 API 权限 |
-| **Content Script** | 网页上下文 | 有限的 DOM 操作 |
-| **Popup** | 弹窗上下文 | 完整 API 权限 |
-
-### 消息通信
-
-```
-Popup/Content Script  ←→  chrome.runtime.sendMessage()  ←→  Background
-```
-
-**发送消息：**
-```javascript
-chrome.runtime.sendMessage({ action: "getData" }, (response) => {
-  console.log(response);
-});
-```
-
-**接收消息（background.js）：**
-```javascript
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  sendResponse({ data: "hello" });
-  return true; // 异步响应必需
-});
-```
-
-## 常用 API
-
-### Storage（本地存储）
-
-```javascript
-// 保存
-chrome.storage.local.set({ key: "value" });
-
-// 读取
-chrome.storage.local.get(["key"], (result) => {
-  console.log(result.key);
-});
-```
-
-### Tabs（标签页）
-
-```javascript
-// 获取当前标签页
-const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-// 创建新标签页
-chrome.tabs.create({ url: "https://example.com" });
-```
-
-### Scripting（脚本注入）
-
-```javascript
-await chrome.scripting.executeScript({
-  target: { tabId: tab.id },
-  files: ["content.js"],
-});
-```
-
-## 开发建议
-
-1. **调试 Background**：在 `chrome://extensions/` 点击插件的 `service worker` 链接
-2. **调试 Content Script**：打开网页的开发者工具（F12）
-3. **调试 Popup**：右键点击插件图标 → **检查弹出内容**
-4. **热重载**：Manifest V3 不支持热重载，修改后需点击刷新按钮
-
-## 打包发布
-
-1. 在 `chrome://extensions/` 点击 **打包扩展程序**
-2. 选择插件根目录
-3. 生成 `.crx` 文件和私钥
-4. 提交到 Chrome Web Store 或企业内部部署
+- **DOM 元素**：`<img>`, `<video>`, `<audio>`, `<source>`, `<picture>`, `<a>`
+- **CSS 背景**：`background-image` 样式
+- **懒加载**：`data-src`, `data-lazy-src`, `data-original` 等属性
+- **网络请求**：拦截 `fetch()` 和 `XMLHttpRequest`
+- **结构化数据**：JSON-LD 脚本中的媒体 URL
+- **预加载**：`<link rel="preload">` 标签
 
 ## 权限说明
 
@@ -139,19 +68,24 @@ await chrome.scripting.executeScript({
 | `storage` | 本地数据存储 |
 | `activeTab` | 访问当前活动标签页 |
 | `scripting` | 动态注入脚本 |
-| `host_permissions` | 允许访问的主机范围 |
+| `downloads` | 下载媒体文件 |
+| `tabs` | 获取标签页信息 |
+| `<all_urls>` | 在所有网页中运行 |
 
-## 扩展开发
+## 开发调试
 
-在此模板基础上，你可以添加：
-- 选项页面（options page）
-- 侧边栏（side panel）
-- 右键菜单（context menus）
-- DevTools 面板
-- 内容安全策略配置
+- **调试 Popup**：右键点击插件图标 → **检查弹出内容**
+- **调试 Content Script**：打开网页的开发者工具（F12）→ Console
+- **调试 Background**：`chrome://extensions/` → 点击插件的 `service worker` 链接
+
+## 注意事项
+
+- 某些网站可能使用 CORS 限制或防盗链，导致资源无法直接下载
+- 动态加载的资源可能需要等待页面完全加载后才能被检测到
+- 部分视频流（如 HLS/m3u8、DASH）需要额外处理，当前版本不支持
 
 ## 参考资源
 
 - [Chrome Extensions 官方文档](https://developer.chrome.com/docs/extensions/)
 - [Manifest V3 迁移指南](https://developer.chrome.com/docs/extensions/migrating/)
-- [Extensions API 参考](https://developer.chrome.com/docs/extensions/reference/)
+- [Downloads API](https://developer.chrome.com/docs/extensions/reference/api/downloads)

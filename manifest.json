@@ -1,15 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Browser Extension Template",
+  "name": "Media Sniffer",
   "version": "1.0.0",
-  "description": "浏览器插件基础模板",
+  "description": "自动嗅探并下载网页中的图片、音频、视频等媒体资源",
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "downloads",
+    "tabs"
   ],
   "host_permissions": [
-    "https://*/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
@@ -18,7 +20,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "css": ["content.css"]
+      "run_at": "document_idle"
     }
   ],
   "action": {
