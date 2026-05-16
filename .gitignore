@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+bower_components/
+vendor/
+
+# Build outputs
+dist/
+build/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+tmp/
+temp/
+
+# Package manager locks (uncomment if needed)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Coverage
+coverage/
+.nyc_output/
+
+# TypeScript
+*.tsbuildinfo
+
+# OpenCode config (contains API keys)
+opencode.json
+opencode.jsonc
+models.json
