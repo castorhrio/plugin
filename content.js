@@ -3,10 +3,26 @@
 
   const IMAGE_EXTS = ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "tiff"];
   const VIDEO_EXTS = ["mp4", "webm", "ogg", "ogv", "mov", "avi", "mkv", "flv", "wmv", "m4v", "3gp"];
-  const AUDIO_EXTS = ["mp3", "wav", "ogg", "oga", "aac", "flac", "m4a", "wma", "opus"];
-  const ALL_EXTS = [...IMAGE_EXTS, ...VIDEO_EXTS, ...AUDIO_EXTS];
+  const AUDIO_EXTS = ["mp3", "wav", "oga", "aac", "flac", "m4a", "wma", "opus"];
+  const ALL_EXTS = [...VIDEO_EXTS, ...AUDIO_EXTS, ...IMAGE_EXTS];
 
   function getType(url) {
+    try {
+      const pathname = new URL(url).pathname.toLowerCase();
+      const filename = pathname.split("/").pop() || "";
+      const baseFilename = filename.split(/[?#]/)[0].toLowerCase();
+
+      for (const ext of VIDEO_EXTS) {
+        if (baseFilename.endsWith("." + ext)) return "video";
+      }
+      for (const ext of AUDIO_EXTS) {
+        if (baseFilename.endsWith("." + ext)) return "audio";
+      }
+      for (const ext of IMAGE_EXTS) {
+        if (baseFilename.endsWith("." + ext)) return "image";
+      }
+    } catch {}
+
     const lower = url.toLowerCase().split("?")[0];
     for (const ext of VIDEO_EXTS) {
       if (lower.includes("." + ext)) return "video";
@@ -39,7 +55,7 @@
     }
   }
 
-  // 提取基础URL：找到第一个媒体扩展名，截取到扩展名结束
+  // 提取基础URL：找到最后一个媒体扩展名，截取到扩展名结束
   function extractBaseUrl(url) {
     try {
       const u = new URL(url);
@@ -49,11 +65,11 @@
 
       const lower = pathname.toLowerCase();
       let bestMatch = null;
-      let bestIndex = Infinity;
+      let bestIndex = -1;
 
       for (const ext of ALL_EXTS) {
-        const idx = lower.indexOf("." + ext);
-        if (idx !== -1 && idx < bestIndex) {
+        const idx = lower.lastIndexOf("." + ext);
+        if (idx !== -1 && idx > bestIndex) {
           bestIndex = idx;
           bestMatch = ext;
         }
@@ -111,10 +127,18 @@
     });
 
     document.querySelectorAll("source[srcset]").forEach((src) => {
+      const parent = src.closest("video, audio, picture");
+      const parentType = parent ? parent.tagName.toLowerCase() : null;
+      const type = parentType === "video" ? "video" : parentType === "audio" ? "audio" : undefined;
       const entries = (src.srcset || "").split(",").map((s) => s.trim().split(/\s+/));
-      entries.forEach(([u]) => { if (u) addResource(u, "image", "source[srcset]"); });
+      entries.forEach(([u]) => { if (u) addResource(u, type, "source[srcset]"); });
     });
-    document.querySelectorAll("source[src]").forEach((src) => { addResource(src.src, "image", "source[src]"); });
+    document.querySelectorAll("source[src]").forEach((src) => {
+      const parent = src.closest("video, audio, picture");
+      const parentType = parent ? parent.tagName.toLowerCase() : null;
+      const type = parentType === "video" ? "video" : parentType === "audio" ? "audio" : undefined;
+      addResource(src.src, type, "source[src]");
+    });
 
     document.querySelectorAll("img[src]").forEach((img) => {
       addResource(img.src, "image", "img");
