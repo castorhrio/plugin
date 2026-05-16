@@ -88,23 +88,19 @@
     resourceList.innerHTML = filtered
       .map((resource, index) => {
         const globalIndex = allResources.indexOf(resource);
-        const displayUrl = resource.thumbUrl || resource.url;
-        const downloadUrl = resource.url;
-        const isThumb = !!resource.thumbUrl;
-
         return `
       <div class="resource-item">
-        ${getThumbnail(displayUrl, resource.type)}
+        ${getThumbnail(resource.url, resource.type)}
         <div class="resource-info">
-          <div class="resource-url" title="${escapeHtml(downloadUrl)}">${escapeHtml(getFilename(downloadUrl))}</div>
+          <div class="resource-url" title="${escapeHtml(resource.url)}">${escapeHtml(getFilename(resource.url))}</div>
           <div class="resource-meta">
             <span class="resource-type ${resource.type}">${getTypeLabel(resource.type)}</span>
-            ${isThumb ? '<span class="resource-source" style="color:#e94560">原图</span>' : `<span class="resource-source">来源: ${escapeHtml(resource.source)}</span>`}
+            <span class="resource-source">来源: ${escapeHtml(resource.source)}</span>
           </div>
         </div>
         <div class="resource-actions">
-          ${resource.type === "image" ? `<button class="btn-preview" data-url="${escapeHtml(downloadUrl)}">预览</button>` : ""}
-          <button class="btn-download" data-index="${globalIndex}">${isThumb ? "下载原图" : "下载"}</button>
+          ${resource.type === "image" ? `<button class="btn-preview" data-url="${escapeHtml(resource.url)}">预览</button>` : ""}
+          <button class="btn-download" data-index="${globalIndex}">下载</button>
         </div>
       </div>
     `;
@@ -189,7 +185,7 @@
   }
 
   function getExtension(url) {
-    const match = url.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp|avif|tiff|mp4|webm|mov|mp3|wav|ogg|aac|flac|m3u8|mpd)(\?.*)?$/i);
+    const match = url.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp|avif|tiff|mp4|webm|mov|mp3|wav|ogg|aac|flac)(\?.*)?$/i);
     return match ? match[1].toLowerCase() : "";
   }
 
