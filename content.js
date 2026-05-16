@@ -3,27 +3,30 @@
 
   const IMAGE_EXTS = ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "tiff"];
   const VIDEO_EXTS = ["mp4", "webm", "ogg", "ogv", "mov", "avi", "mkv", "flv", "wmv", "m4v", "3gp"];
-  const AUDIO_EXTS = ["mp3", "wav", "oga", "aac", "flac", "m4a", "wma", "opus"];
-  const ALL_EXTS = [...VIDEO_EXTS, ...AUDIO_EXTS, ...IMAGE_EXTS];
+  const AUDIO_EXTS = ["mp3", "wav", "ogg", "oga", "aac", "flac", "m4a", "wma", "opus"];
+  const ALL_EXTS = [...IMAGE_EXTS, ...VIDEO_EXTS, ...AUDIO_EXTS];
+
+  // CDN 缩略图参数正则
+  const CDN_THUMB_PATTERNS = [
+    /@\d+w_\d+h_\d+[a-z]*/gi,
+    /@\d+w/gi,
+    /@\d+h/gi,
+    /x-oss-process=image\/[^&]*/gi,
+    /imageMogr2\/[^&]*/gi,
+    /imageView2\/[^&]*/gi,
+    /watermark\/[^&]*/gi,
+    /[?&]width=\d+/gi,
+    /[?&]height=\d+/gi,
+    /[?&]resize=\([^)]*\)/gi,
+    /_1s_[^&]*/gi,
+    /!web-avatar-nav[^&]*/gi,
+  ];
 
   function getType(url) {
-    try {
-      const pathname = new URL(url).pathname.toLowerCase();
-      const filename = pathname.split("/").pop() || "";
-      const baseFilename = filename.split(/[?#]/)[0].toLowerCase();
-
-      for (const ext of VIDEO_EXTS) {
-        if (baseFilename.endsWith("." + ext)) return "video";
-      }
-      for (const ext of AUDIO_EXTS) {
-        if (baseFilename.endsWith("." + ext)) return "audio";
-      }
-      for (const ext of IMAGE_EXTS) {
-        if (baseFilename.endsWith("." + ext)) return "image";
-      }
-    } catch {}
-
     const lower = url.toLowerCase().split("?")[0];
+    // 流媒体格式
+    if (lower.includes(".m3u8") || lower.includes(".mpd") || lower.includes("/master.m3u8") || lower.includes("/index.m3u8")) return "video";
+    if (lower.includes(".m3u8") || lower.includes(".mpd")) return "video";
     for (const ext of VIDEO_EXTS) {
       if (lower.includes("." + ext)) return "video";
     }
@@ -55,36 +58,25 @@
     }
   }
 
-  // 提取基础URL：找到最后一个媒体扩展名，截取到扩展名结束
-  function extractBaseUrl(url) {
+  // 清理 CDN 缩略图参数，获取原图 URL
+  function cleanThumbUrl(url) {
+    let cleaned = url;
+    CDN_THUMB_PATTERNS.forEach((pattern) => {
+      cleaned = cleaned.replace(pattern, "");
+    });
+    cleaned = cleaned.replace(/[?&]$/, "").replace(/\?$/, "");
+    return cleaned;
+  }
+
+  // 生成用于去重的规范化 URL
+  function normalizeUrl(url) {
     try {
       const u = new URL(url);
-      let pathname = u.pathname;
-      const hashIndex = pathname.indexOf("#");
-      if (hashIndex !== -1) pathname = pathname.substring(0, hashIndex);
-
-      const lower = pathname.toLowerCase();
-      let bestMatch = null;
-      let bestIndex = -1;
-
-      for (const ext of ALL_EXTS) {
-        const idx = lower.lastIndexOf("." + ext);
-        if (idx !== -1 && idx > bestIndex) {
-          bestIndex = idx;
-          bestMatch = ext;
-        }
-      }
-
-      if (bestMatch) {
-        const baseUrl = pathname.substring(0, bestIndex + bestMatch.length + 1);
-        u.pathname = baseUrl;
-        u.search = "";
-        u.hash = "";
-        return u.href;
-      }
-      return url;
+      u.search = "";
+      u.hash = "";
+      return cleanThumbUrl(u.href);
     } catch {
-      return url;
+      return cleanThumbUrl(url);
     }
   }
 
@@ -97,25 +89,34 @@
       const detectedType = type || getType(resolved);
       if (detectedType === "unknown") return;
 
-      const baseUrl = extractBaseUrl(resolved);
-      const normalized = baseUrl.toLowerCase();
+      const cleaned = cleanThumbUrl(resolved);
+      const normalized = normalizeUrl(resolved);
+      const isThumb = resolved !== cleaned;
 
       if (resources.has(normalized)) {
         const existing = resources.get(normalized);
         if (!existing.sources.includes(source)) {
           existing.sources.push(source);
         }
-        if (resolved.length > existing.url.length) {
-          existing.originalUrl = resolved;
+        // 如果当前是原图且之前存的是缩略图，替换为原图
+        if (!isThumb && existing.isThumb) {
+          existing.url = cleaned;
+          existing.thumbUrl = resolved;
+          existing.isThumb = false;
+        }
+        // 如果当前是缩略图且还没有记录缩略图URL
+        if (isThumb && !existing.thumbUrl) {
+          existing.thumbUrl = resolved;
         }
         return;
       }
 
       resources.set(normalized, {
-        url: baseUrl,
-        originalUrl: resolved !== baseUrl ? resolved : null,
+        url: isThumb ? cleaned : resolved,
+        thumbUrl: isThumb ? resolved : null,
         type: detectedType,
         sources: [source],
+        isThumb,
       });
     }
 
@@ -127,18 +128,10 @@
     });
 
     document.querySelectorAll("source[srcset]").forEach((src) => {
-      const parent = src.closest("video, audio, picture");
-      const parentType = parent ? parent.tagName.toLowerCase() : null;
-      const type = parentType === "video" ? "video" : parentType === "audio" ? "audio" : undefined;
       const entries = (src.srcset || "").split(",").map((s) => s.trim().split(/\s+/));
-      entries.forEach(([u]) => { if (u) addResource(u, type, "source[srcset]"); });
+      entries.forEach(([u]) => { if (u) addResource(u, "image", "source[srcset]"); });
     });
-    document.querySelectorAll("source[src]").forEach((src) => {
-      const parent = src.closest("video, audio, picture");
-      const parentType = parent ? parent.tagName.toLowerCase() : null;
-      const type = parentType === "video" ? "video" : parentType === "audio" ? "audio" : undefined;
-      addResource(src.src, type, "source[src]");
-    });
+    document.querySelectorAll("source[src]").forEach((src) => { addResource(src.src, "image", "source[src]"); });
 
     document.querySelectorAll("img[src]").forEach((img) => {
       addResource(img.src, "image", "img");
@@ -147,12 +140,23 @@
 
     document.querySelectorAll("video[src], audio[src]").forEach((el) => {
       const type = el.tagName.toLowerCase() === "video" ? "video" : "audio";
-      addResource(el.src, type, el.tagName.toLowerCase());
+      const src = el.src;
+      if (src && !src.startsWith("blob:")) {
+        addResource(src, type, el.tagName.toLowerCase());
+      }
     });
     document.querySelectorAll("video source, audio source").forEach((src) => {
       const parent = src.parentElement;
       const type = parent && parent.tagName.toLowerCase() === "video" ? "video" : "audio";
-      addResource(src.src, type, `${parent?.tagName?.toLowerCase()} > source`);
+      const srcUrl = src.src;
+      if (srcUrl && !srcUrl.startsWith("blob:")) {
+        addResource(srcUrl, type, `${parent?.tagName?.toLowerCase()} > source`);
+      }
+    });
+
+    // 检测视频 poster（封面图）
+    document.querySelectorAll("video[poster]").forEach((video) => {
+      addResource(video.poster, "image", "video[poster]");
     });
 
     document.querySelectorAll("*").forEach((el) => {
@@ -195,6 +199,7 @@
 
     return Array.from(resources.values()).map((r) => ({
       url: r.url,
+      thumbUrl: r.thumbUrl,
       type: r.type,
       source: r.sources.join(", "),
     }));
@@ -209,10 +214,10 @@
       if (url) {
         const type = getType(url);
         if (type !== "unknown") {
-          const baseUrl = extractBaseUrl(url);
-          const normalized = baseUrl.toLowerCase();
+          const cleaned = cleanThumbUrl(url);
+          const normalized = normalizeUrl(url);
           if (!dynamicResources.has(normalized)) {
-            dynamicResources.set(normalized, { url: baseUrl, type, source: "fetch" });
+            dynamicResources.set(normalized, { url: cleaned, thumbUrl: url !== cleaned ? url : null, type, source: "fetch" });
           }
         }
       }
@@ -224,10 +229,10 @@
       if (url && typeof url === "string") {
         const type = getType(url);
         if (type !== "unknown") {
-          const baseUrl = extractBaseUrl(url);
-          const normalized = baseUrl.toLowerCase();
+          const cleaned = cleanThumbUrl(url);
+          const normalized = normalizeUrl(url);
           if (!dynamicResources.has(normalized)) {
-            dynamicResources.set(normalized, { url: baseUrl, type, source: "xhr" });
+            dynamicResources.set(normalized, { url: cleaned, thumbUrl: url !== cleaned ? url : null, type, source: "xhr" });
           }
         }
       }
@@ -241,6 +246,43 @@
         chrome.runtime.sendMessage({ action: "mediaDetected", resources, pageUrl: window.location.href });
       }
     }, 2000);
+
+    // 拦截 <video> 元素的 src 属性变化（处理动态设置的视频源）
+    const videoObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === "attributes" && mutation.attributeName === "src") {
+          const video = mutation.target;
+          if (video.tagName === "VIDEO" && video.src && !video.src.startsWith("blob:")) {
+            addResource(video.src, "video", "video[src]");
+          }
+        }
+      });
+    });
+
+    document.querySelectorAll("video").forEach((video) => {
+      videoObserver.observe(video, { attributes: true });
+    });
+
+    // 观察新添加的 video 元素
+    const domObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === 1) {
+            if (node.tagName === "VIDEO" && node.src && !node.src.startsWith("blob:")) {
+              addResource(node.src, "video", "video[added]");
+            }
+            node.querySelectorAll?.("video").forEach((video) => {
+              if (video.src && !video.src.startsWith("blob:")) {
+                addResource(video.src, "video", "video[added]");
+              }
+              videoObserver.observe(video, { attributes: true });
+            });
+          }
+        });
+      });
+    });
+
+    domObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
