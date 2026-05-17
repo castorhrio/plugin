@@ -38,6 +38,21 @@
         <p class="hint">如果没有自动扫描，请点击刷新按钮</p>
       </div>
     </div>
+
+    <div class="download-panel" id="downloadPanel">
+      <div class="download-panel-header">
+        <span class="download-panel-title" id="downloadPanelTitle">下载中...</span>
+        <button class="btn-icon download-panel-close" id="downloadPanelClose">✕</button>
+      </div>
+      <div class="download-progress-bar">
+        <div class="download-progress-fill" id="downloadProgressFill"></div>
+      </div>
+      <div class="download-progress-info">
+        <span id="downloadProgressText">0%</span>
+        <span id="downloadProgressDetail">0 / 0 片段</span>
+      </div>
+      <div class="download-log" id="downloadLog"></div>
+    </div>
   </div>
 
   <script src="popup.js"></script>

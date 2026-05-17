@@ -9,7 +9,8 @@
     "scripting",
     "downloads",
     "tabs",
-    "webRequest"
+    "webRequest",
+    "cookies"
   ],
   "host_permissions": [
     "<all_urls>"

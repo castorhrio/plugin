@@ -8,16 +8,29 @@
 
   function getType(url) {
     const lower = url.toLowerCase().split("?")[0];
-    // 流媒体格式优先匹配
-    if (lower.includes(".m3u8") || lower.includes(".mpd") || lower.includes("/master.m3u8") || lower.includes("/index.m3u8")) return "video";
+
+    // 图片反检查：路径以图片扩展名结尾的绝不判为视频
+    if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|avif|tiff)(@|$)/i.test(lower)) return "image";
+
+    // 非视频域名黑名单
+    try {
+      const host = new URL(url).hostname.toLowerCase();
+      if (host.includes("data.bilibili.com") || host.includes("hm.baidu.com") || host.includes("log.")) return "unknown";
+    } catch {}
+
+    if (lower.includes(".m3u8") || lower.includes(".mpd") || lower.includes(".m4s")) return "video";
+    if (lower.includes("/videoplayback")) return "video";
+    if (/\/[^/]+\.ts([?#]|$)/i.test(url)) return "video";
+
+    // 用点号+扩展名+非字母数字后缀 精确匹配，避免 .webmask 被 .webm 误匹配
     for (const ext of VIDEO_EXTS) {
-      if (lower.includes("." + ext)) return "video";
+      if (new RegExp("\\." + ext + "(?=[^a-z0-9]|$)", "i").test(lower)) return "video";
     }
     for (const ext of AUDIO_EXTS) {
-      if (lower.includes("." + ext)) return "audio";
+      if (new RegExp("\\." + ext + "(?=[^a-z0-9]|$)", "i").test(lower)) return "audio";
     }
     for (const ext of IMAGE_EXTS) {
-      if (lower.includes("." + ext)) return "image";
+      if (new RegExp("\\." + ext + "(?=[^a-z0-9]|$)", "i").test(lower)) return "image";
     }
     return "unknown";
   }
@@ -41,13 +54,22 @@
     }
   }
 
-  // 提取基础URL：找到第一个媒体扩展名，截取到扩展名结束
-  function extractBaseUrl(url) {
+  // 图片去重：截断 CDN 缩略图参数（如 @120w_120h_1c），保留完整查询参数
+  // 视频/音频：完整保留 URL 不做截断（认证参数不能丢）
+  function extractBaseUrl(url, type) {
+    if (type === "video" || type === "audio") return url;
+
     try {
       const u = new URL(url);
       let pathname = u.pathname;
       const hashIndex = pathname.indexOf("#");
       if (hashIndex !== -1) pathname = pathname.substring(0, hashIndex);
+
+      // 清理 CDN 缩略图后缀
+      const cdnMatch = pathname.match(/^(.+?\.(jpg|jpeg|png|gif|webp|bmp|avif|tiff))(@[\w_]+)$/i);
+      if (cdnMatch) {
+        pathname = cdnMatch[1];
+      }
 
       const lower = pathname.toLowerCase();
       let bestMatch = null;
@@ -74,37 +96,41 @@
     }
   }
 
-  function scanMedia() {
-    const resources = new Map();
+  // 全局资源收集器：scanMedia 和 MutationObserver 共用
+  const allDetectedResources = new Map();
 
-    function addResource(url, type, source) {
-      if (!isValidUrl(url)) return;
-      const resolved = resolveUrl(url);
-      const detectedType = type || getType(resolved);
-      if (detectedType === "unknown") return;
+  function addResource(url, type, source) {
+    if (!isValidUrl(url)) return;
+    const resolved = resolveUrl(url);
+    const detectedType = type || getType(resolved);
+    if (detectedType === "unknown") return;
 
-      const baseUrl = extractBaseUrl(resolved);
-      const normalized = baseUrl.toLowerCase();
+    // 视频保留完整 URL，图片用截断 URL 做去重 key
+    const baseUrl = extractBaseUrl(resolved, detectedType);
+    const normalized = baseUrl.toLowerCase();
 
-      if (resources.has(normalized)) {
-        const existing = resources.get(normalized);
-        if (!existing.sources.includes(source)) {
-          existing.sources.push(source);
-        }
-        if (resolved.length > existing.url.length) {
-          existing.originalUrl = resolved;
-        }
-        return;
+    if (allDetectedResources.has(normalized)) {
+      const existing = allDetectedResources.get(normalized);
+      if (!existing.sources.includes(source)) {
+        existing.sources.push(source);
       }
-
-      resources.set(normalized, {
-        url: baseUrl,
-        originalUrl: resolved !== baseUrl ? resolved : null,
-        type: detectedType,
-        sources: [source],
-      });
+      // 视频保留最长 URL（含认证参数）
+      if (detectedType === "video" || detectedType === "audio") {
+        if (resolved.length > existing.url.length) {
+          existing.url = resolved;
+        }
+      }
+      return;
     }
 
+    allDetectedResources.set(normalized, {
+      url: detectedType === "video" || detectedType === "audio" ? resolved : baseUrl,
+      type: detectedType,
+      sources: [source],
+    });
+  }
+
+  function scanMedia() {
     document.querySelectorAll("[data-original], [data-lazy-original]").forEach((el) => {
       ["data-original", "data-lazy-original"].forEach((attr) => {
         const val = el.getAttribute(attr);
@@ -139,7 +165,6 @@
       }
     });
 
-    // 检测视频 poster（封面图）
     document.querySelectorAll("video[poster]").forEach((video) => {
       addResource(video.poster, "image", "video[poster]");
     });
@@ -182,7 +207,7 @@
       } catch {}
     });
 
-    return Array.from(resources.values()).map((r) => ({
+    return Array.from(allDetectedResources.values()).map((r) => ({
       url: r.url,
       type: r.type,
       source: r.sources.join(", "),
@@ -198,10 +223,13 @@
       if (url) {
         const type = getType(url);
         if (type !== "unknown") {
-          const baseUrl = extractBaseUrl(url);
-          const normalized = baseUrl.toLowerCase();
-          if (!dynamicResources.has(normalized)) {
-            dynamicResources.set(normalized, { url: baseUrl, type, source: "fetch" });
+          const key = type === "video" || type === "audio" ? url.toLowerCase() : extractBaseUrl(url, type).toLowerCase();
+          if (!dynamicResources.has(key)) {
+            dynamicResources.set(key, {
+              url: type === "video" || type === "audio" ? url : extractBaseUrl(url, type),
+              type,
+              source: "fetch"
+            });
           }
         }
       }
@@ -213,10 +241,13 @@
       if (url && typeof url === "string") {
         const type = getType(url);
         if (type !== "unknown") {
-          const baseUrl = extractBaseUrl(url);
-          const normalized = baseUrl.toLowerCase();
-          if (!dynamicResources.has(normalized)) {
-            dynamicResources.set(normalized, { url: baseUrl, type, source: "xhr" });
+          const key = type === "video" || type === "audio" ? url.toLowerCase() : extractBaseUrl(url, type).toLowerCase();
+          if (!dynamicResources.has(key)) {
+            dynamicResources.set(key, {
+              url: type === "video" || type === "audio" ? url : extractBaseUrl(url, type),
+              type,
+              source: "xhr"
+            });
           }
         }
       }
@@ -230,29 +261,53 @@
         chrome.runtime.sendMessage({ action: "mediaDetected", resources, pageUrl: window.location.href });
       }
     }, 2000);
+  }
 
-    // 观察动态插入的 video 元素
-    const videoObserver = new MutationObserver((mutations) => {
+  // MutationObserver：监听动态插入的 <video> 元素
+  // 修复：使用全局 addResource，而非 scanMedia 内部局部函数
+  function observeVideoElements() {
+    const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === 1) {
             if (node.tagName === "VIDEO") {
               if (node.src && !node.src.startsWith("blob:")) {
                 addResource(node.src, "video", "video[added]");
+                // 立即上报
+                chrome.runtime.sendMessage({
+                  action: "mediaDetected",
+                  resources: [{ url: node.src, type: "video", source: "video[added]" }],
+                  pageUrl: window.location.href
+                });
               }
               node.querySelectorAll("source").forEach((src) => {
                 if (src.src && !src.src.startsWith("blob:")) {
                   addResource(src.src, "video", "video > source[added]");
+                  chrome.runtime.sendMessage({
+                    action: "mediaDetected",
+                    resources: [{ url: src.src, type: "video", source: "video > source[added]" }],
+                    pageUrl: window.location.href
+                  });
                 }
               });
             }
             node.querySelectorAll?.("video").forEach((video) => {
               if (video.src && !video.src.startsWith("blob:")) {
                 addResource(video.src, "video", "video[added]");
+                chrome.runtime.sendMessage({
+                  action: "mediaDetected",
+                  resources: [{ url: video.src, type: "video", source: "video[added]" }],
+                  pageUrl: window.location.href
+                });
               }
               video.querySelectorAll("source").forEach((src) => {
                 if (src.src && !src.src.startsWith("blob:")) {
                   addResource(src.src, "video", "video > source[added]");
+                  chrome.runtime.sendMessage({
+                    action: "mediaDetected",
+                    resources: [{ url: src.src, type: "video", source: "video > source[added]" }],
+                    pageUrl: window.location.href
+                  });
                 }
               });
             });
@@ -262,7 +317,11 @@
     });
 
     if (document.body) {
-      videoObserver.observe(document.body, { childList: true, subtree: true });
+      observer.observe(document.body, { childList: true, subtree: true });
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        observer.observe(document.body, { childList: true, subtree: true });
+      });
     }
   }
 
@@ -274,6 +333,7 @@
   });
 
   interceptNetworkRequests();
+  observeVideoElements();
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {

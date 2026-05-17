@@ -283,6 +283,60 @@ body {
   background: #1a4a7a;
 }
 
+.btn-copy {
+  padding: 6px 10px;
+  background: #059669;
+  border: none;
+  color: #fff;
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btn-copy:hover {
+  background: #047857;
+}
+
+.resource-category {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.resource-category.manifest {
+  background: #22c55e33;
+  color: #22c55e;
+}
+
+.resource-category.paired {
+  background: #22c55e33;
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.resource-category.stream {
+  background: #e9456033;
+  color: #e94560;
+}
+
+.resource-category.fmp4 {
+  background: #e9456033;
+  color: #e94560;
+}
+
+.resource-category.ts {
+  background: #22c55e33;
+  color: #22c55e;
+}
+
+.resource-category.dash {
+  background: #f59e0b33;
+  color: #f59e0b;
+}
+
 .loading {
   display: flex;
   align-items: center;
@@ -305,4 +359,98 @@ body {
   to {
     transform: rotate(360deg);
   }
+}
+
+.download-panel {
+  display: none;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #16213e;
+  border-top: 2px solid #e94560;
+  padding: 12px 16px;
+  z-index: 100;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.download-panel.active {
+  display: flex;
+}
+
+.download-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.download-panel-title {
+  font-size: 12px;
+  color: #e94560;
+  font-weight: 600;
+}
+
+.download-panel-close {
+  font-size: 14px;
+  padding: 2px 6px;
+}
+
+.download-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: #0f3460;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.download-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #e94560, #a78bfa);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.download-progress-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #aaa;
+}
+
+.download-log {
+  max-height: 60px;
+  overflow-y: auto;
+  font-size: 10px;
+  color: #666;
+  padding: 4px 0;
+}
+
+.download-log div {
+  padding: 1px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-merge {
+  padding: 6px 10px;
+  background: #e94560;
+  border: none;
+  color: #fff;
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btn-merge:hover {
+  background: #c73652;
+}
+
+.btn-merge:disabled {
+  background: #333;
+  cursor: not-allowed;
 }
