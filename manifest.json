@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Media Sniffer",
+  "name": "觅源 SourceSeek",
   "version": "1.0.0",
-  "description": "自动嗅探并下载网页中的图片、音频、视频等媒体资源",
+  "description": "觅源 SourceSeek —— 智能探测并下载网页中的图片、音频、视频等媒体资源",
   "permissions": [
     "storage",
     "activeTab",

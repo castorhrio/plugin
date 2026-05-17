@@ -1,4 +1,4 @@
-# Media Sniffer
+# 觅源 SourceSeek
 
 <p align="center">
   <img src="icons/icon128.png" width="96" alt="Logo">
@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT">
 </p>
 
-<p align="center"><b>一键嗅探网页图片 · 音频 · 视频，支持 HLS 与 DASH 流媒体完整下载合并</b></p>
+<p align="center"><b>一键探测网页图片 · 音频 · 视频，支持 HLS 与 DASH 流媒体完整下载合并</b></p>
 
 ---
 

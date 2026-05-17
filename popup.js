@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   "use strict";
 
   let allResources = [];
@@ -341,7 +341,7 @@
 
       const blob = new Blob([merged], { type: "video/mp4" });
       const blobUrl = URL.createObjectURL(blob);
-      const filename = "media-sniffer/complete_" + Date.now() + ".mp4";
+      const filename = "SourceSeek/complete_" + Date.now() + ".mp4";
       chrome.downloads.download({ url: blobUrl, filename, conflictAction: "uniquify" }, () => {
         if (chrome.runtime.lastError) addLog("保存失败: " + chrome.runtime.lastError.message);
         else addLog("完成! 合并视频 " + (merged.length / 1024 / 1024).toFixed(1) + "MB");
@@ -460,7 +460,7 @@
   function saveBlob(data, label, mimeType, ext) {
     const blob = new Blob([data], { type: mimeType });
     const blobUrl = URL.createObjectURL(blob);
-    const filename = "media-sniffer/" + label.replace(/[^\w\u4e00-\u9fff]/g, "_") + "_" + Date.now() + ext;
+    const filename = "SourceSeek/" + label.replace(/[^\w\u4e00-\u9fff]/g, "_") + "_" + Date.now() + ext;
     chrome.downloads.download({ url: blobUrl, filename, conflictAction: "uniquify" }, () => {
       if (chrome.runtime.lastError) addLog("保存失败: " + chrome.runtime.lastError.message);
       else addLog("已保存: " + label + " (" + (data.length / 1024 / 1024).toFixed(1) + "MB)");
@@ -604,7 +604,7 @@
     try {
       const blob = new Blob([m], { type: mime });
       const bu = URL.createObjectURL(blob);
-      const filename = "media-sniffer/video_" + Date.now() + ext;
+      const filename = "SourceSeek/video_" + Date.now() + ext;
       chrome.downloads.download({ url: bu, filename, conflictAction: "uniquify" }, (dlId) => {
         if (chrome.runtime.lastError) {
           addLog("下载保存失败: " + chrome.runtime.lastError.message);
@@ -621,7 +621,7 @@
       const reader = new FileReader();
       reader.onload = () => {
         const bu = reader.result;
-        chrome.downloads.download({ url: bu, filename: "media-sniffer/video_" + Date.now() + ext, conflictAction: "uniquify" }, () => {
+        chrome.downloads.download({ url: bu, filename: "SourceSeek/video_" + Date.now() + ext, conflictAction: "uniquify" }, () => {
           addLog("完成! " + (len / 1024 / 1024).toFixed(1) + "MB");
           setPanelTitle("下载完成");
         });
@@ -1001,7 +1001,7 @@
           let f = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() || "media");
           f += "." + format.toLowerCase();
           f = f.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
-          return "media-sniffer/" + (r.type === "image" ? "img" : "video") + "_" + f;
+          return "SourceSeek/" + (r.type === "image" ? "img" : "video") + "_" + f;
         }
         // Instagram CDN: path like /v/t51.2885-15/... (no file extension, may end with /)
         const pathSegments = u.pathname.split("/").filter(Boolean);
@@ -1009,22 +1009,22 @@
         if (pathFile && !pathFile.includes(".")) {
           let f = pathFile.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
           f += ext;
-          return "media-sniffer/" + (r.type === "image" ? "img" : "video") + "_" + f;
+          return "SourceSeek/" + (r.type === "image" ? "img" : "video") + "_" + f;
         }
         if (!pathFile) {
           // Path ends with /, use last non-empty segment
           const lastSeg = pathSegments.pop() || "media";
           let f = lastSeg.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
           f += ext;
-          return "media-sniffer/" + (r.type === "image" ? "img" : "video") + "_" + f;
+          return "SourceSeek/" + (r.type === "image" ? "img" : "video") + "_" + f;
         }
       }
       let f = decodeURIComponent((u || new URL(r.url)).pathname.split("/").filter(Boolean).pop() || "media");
       if (!f.includes(".")) f += ext;
       f = f.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
-      return "media-sniffer/" + (r.type === "image" ? "img" : "video") + "_" + f;
+      return "SourceSeek/" + (r.type === "image" ? "img" : "video") + "_" + f;
     }
-    catch { return "media-sniffer/" + r.type + "_" + Date.now() + ".mp4"; }
+    catch { return "SourceSeek/" + r.type + "_" + Date.now() + ".mp4"; }
   }
 
   scanCurrentTab();

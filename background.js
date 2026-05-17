@@ -3,7 +3,7 @@
 const mediaCache = new Map();
 
 chrome.runtime.onInstalled.addListener((details) => {
-  console.log("Media Sniffer 已安装", details);
+  console.log("觅源 SourceSeek 已安装", details);
 });
 
 // 非视频 CDN 域名黑名单
