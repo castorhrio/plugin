@@ -47,7 +47,7 @@ graph TB
 | 组件 | 文件 | 职责 |
 |------|------|------|
 | **Popup** | `popup.html` + `popup.js` | 用户界面：资源列表、筛选、下载触发、进度展示、fMP4 Remuxer |
-| **Content Script** | `content.js` | 页面注入：DOM 扫描、fetch/XHR 拦截、站点适配（IG/X/YT）、SPA 路由监听 |
+| **Content Script** | `content.js` | 页面注入：DOM 扫描、fetch/XHR 拦截、SPA 路由监听 |
 | **Service Worker** | `background.js` | 后台持久：webRequest 网络拦截、代理下载（带 Cookie/Referer） |
 
 ---
@@ -70,7 +70,6 @@ sequenceDiagram
         CS->>Page: CSS background-image 解析
         CS->>Page: JSON-LD 结构化数据提取
         CS->>Page: 懒加载属性 (data-src/data-original)
-        CS->>Page: 站点适配 (IG/X/YT 内嵌 JSON)
     and Background 拦截
         SW->>Page: webRequest.onBeforeRequest
         SW-->>SW: 缓存至 mediaCache
@@ -119,40 +118,6 @@ flowchart LR
 
 ---
 
-## Popup 界面
-
-```
-┌───────────────────────────────────────────────┐
-│  Media Sniffer                          ⟳    │← header
-├───────────────────────────────────────────────┤
-│  当前页面标题                                   │← page-info
-├───────────────────────────────────────────────┤
-│  [ 全部 ] [ 图片 ] [ 视频 ] [ 音频 ]             │← filters
-├───────────────────────────────────────────────┤
-│  6 个资源                        [全部下载]    │← stats
-├───────────────────────────────────────────────┤
-│  ┌──────┐  video_114514.mp4                    │
-│  │  🎬  │  video · 视频文件 · network    [下载] │← resource-item
-│  └──────┘                                      │
-│  ┌──────┐  photo_beauty.jpg                    │
-│  │  🖼  │  image · image · img   [预览] [下载] │
-│  └──────┘                                      │
-│  ┌──────┐  output.m3u8                         │
-│  │  🎬  │  video · HLS · network  [合并下载]   │
-│  └──────┘  [复制链接]                          │
-│  ┌──────┐  完整视频                             │
-│  │  🎬  │  video · paired-stream  [下载]       │← 视频+音频配对
-│  └──────┘                                      │
-├───────────────────────────────────────────────┤
-│  下载中...                              ✕     │
-│  ████████████░░░░░░░░░░ 67%                     │← 下载面板 (条件显示)
-│  4 / 6 片段                                    │
-│  视频: 12.3MB  音频: 3.2MB  合并中...            │
-└───────────────────────────────────────────────┘
-```
-
----
-
 ## 功能特性
 
 ### 检测策略
@@ -164,7 +129,6 @@ flowchart LR
 | 📡 **网络拦截** | Hook `fetch()` + `XMLHttpRequest`，Service Worker `webRequest` |
 | 📋 **JSON-LD** | 结构化数据中的媒体 URL |
 | ⚡ **预加载** | `<link rel="preload">` 标签 |
-| 🏷 **站点适配** | Instagram / X / YouTube 内嵌 JSON 解析 |
 
 ### 流媒体
 
@@ -172,25 +136,6 @@ flowchart LR
 |------|------|
 | 📺 **HLS (m3u8)** | 多级清单解析 · 自动选最高码率 · AES-128 解密 · 并发 TS 拼接 |
 | 📦 **DASH (m4s)** | 视频/音频自动配对 · fMP4 Remuxer 合并为完整 MP4 · ID 映射防冲突 |
-
-### 站点适配
-
-```mermaid
-mindmap
-  root((站点适配))
-    Instagram / Threads
-      CDN 认证 URL (oh/oe/stp)
-      og:image / og:video 标签
-      display_url / video_url 内嵌 JSON
-    X / Twitter
-      ?format= 图片质量参数
-      video_info.variants 最高码率
-      media_url_https 内嵌 JSON
-    YouTube
-      ytInitialPlayerResponse 解析
-      直接 URL 过滤 (跳过 signed)
-      qualityLabel 标注
-```
 
 ---
 
@@ -210,7 +155,6 @@ mindmap
 | 扫描资源 | 打开目标页面 → 点击插件图标（自动扫描）或点 ⟳ 手动刷新 |
 | 筛选 | 点击「全部 / 图片 / 视频 / 音频」分类按钮 |
 | 下载 | 单个点击「下载」；批量点击「全部下载」 |
-| 预览图片 | 点击图片资源的「预览」按钮 |
 | 复制链接 | 点击「复制链接」→ 自动写入剪贴板 |
 | **HLS 下载** | 找到带 `HLS` 标签的资源 → 点击「合并下载」→ 自动解析+解密+拼接 |
 | **DASH 合并** | 等待配对完成（显示「完整视频」标签）→ 点击「下载」→ fMP4 自动合并 |
@@ -276,7 +220,7 @@ Service Worker 发起 HTTP 请求时自动注入：
 plugin/
 ├── manifest.json      # 插件清单 (Manifest V3)
 ├── background.js      # Service Worker：网络拦截 · 代理下载
-├── content.js         # Content Script：DOM 扫描 · fetch/XHR · 站点适配
+├── content.js         # Content Script：DOM 扫描 · fetch/XHR 拦截
 ├── content.css        # 页面浮动按钮样式
 ├── popup.html         # 弹窗页面 (400×500)
 ├── popup.js           # 弹窗逻辑：列表 · 下载 · HLS/DASH · Remuxer
@@ -284,6 +228,12 @@ plugin/
 ├── icons/             # 图标 (16/48/128)
 └── README.md
 ```
+
+---
+
+## 免责声明
+
+本插件仅供学习和研究用途。使用者应遵守相关网站的服务条款和版权法规，不得将下载的媒体资源用于非法用途或商业目的。开发者不承担因使用本插件而产生的任何法律责任。
 
 ---
 
