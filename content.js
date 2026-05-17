@@ -258,7 +258,7 @@
       if (dynamicResources.size > 0) {
         const resources = Array.from(dynamicResources.values());
         dynamicResources.clear();
-        chrome.runtime.sendMessage({ action: "mediaDetected", resources, pageUrl: window.location.href });
+        try { chrome.runtime.sendMessage({ action: "mediaDetected", resources, pageUrl: window.location.href }); } catch {}
       }
     }, 2000);
   }
@@ -273,41 +273,24 @@
             if (node.tagName === "VIDEO") {
               if (node.src && !node.src.startsWith("blob:")) {
                 addResource(node.src, "video", "video[added]");
-                // 立即上报
-                chrome.runtime.sendMessage({
-                  action: "mediaDetected",
-                  resources: [{ url: node.src, type: "video", source: "video[added]" }],
-                  pageUrl: window.location.href
-                });
+                try { chrome.runtime.sendMessage({ action: "mediaDetected", resources: [{ url: node.src, type: "video", source: "video[added]" }], pageUrl: window.location.href }); } catch {}
               }
               node.querySelectorAll("source").forEach((src) => {
                 if (src.src && !src.src.startsWith("blob:")) {
                   addResource(src.src, "video", "video > source[added]");
-                  chrome.runtime.sendMessage({
-                    action: "mediaDetected",
-                    resources: [{ url: src.src, type: "video", source: "video > source[added]" }],
-                    pageUrl: window.location.href
-                  });
+                  try { chrome.runtime.sendMessage({ action: "mediaDetected", resources: [{ url: src.src, type: "video", source: "video > source[added]" }], pageUrl: window.location.href }); } catch {}
                 }
               });
             }
             node.querySelectorAll?.("video").forEach((video) => {
               if (video.src && !video.src.startsWith("blob:")) {
                 addResource(video.src, "video", "video[added]");
-                chrome.runtime.sendMessage({
-                  action: "mediaDetected",
-                  resources: [{ url: video.src, type: "video", source: "video[added]" }],
-                  pageUrl: window.location.href
-                });
+                try { chrome.runtime.sendMessage({ action: "mediaDetected", resources: [{ url: video.src, type: "video", source: "video[added]" }], pageUrl: window.location.href }); } catch {}
               }
               video.querySelectorAll("source").forEach((src) => {
                 if (src.src && !src.src.startsWith("blob:")) {
                   addResource(src.src, "video", "video > source[added]");
-                  chrome.runtime.sendMessage({
-                    action: "mediaDetected",
-                    resources: [{ url: src.src, type: "video", source: "video > source[added]" }],
-                    pageUrl: window.location.href
-                  });
+                  try { chrome.runtime.sendMessage({ action: "mediaDetected", resources: [{ url: src.src, type: "video", source: "video > source[added]" }], pageUrl: window.location.href }); } catch {}
                 }
               });
             });
@@ -340,7 +323,7 @@
       setTimeout(() => {
         const resources = scanMedia();
         if (resources.length > 0) {
-          chrome.runtime.sendMessage({ action: "mediaDetected", resources, pageUrl: window.location.href, pageTitle: document.title });
+          try { chrome.runtime.sendMessage({ action: "mediaDetected", resources, pageUrl: window.location.href, pageTitle: document.title }); } catch {}
         }
       }, 1000);
     });
@@ -348,7 +331,7 @@
     setTimeout(() => {
       const resources = scanMedia();
       if (resources.length > 0) {
-        chrome.runtime.sendMessage({ action: "mediaDetected", resources, pageUrl: window.location.href, pageTitle: document.title });
+        try { chrome.runtime.sendMessage({ action: "mediaDetected", resources, pageUrl: window.location.href, pageTitle: document.title }); } catch {}
       }
     }, 1000);
   }

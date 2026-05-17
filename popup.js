@@ -361,9 +361,13 @@
   let currentPageTabId = null;
   let currentPageOrigin = "";
 
-  // 检查数据是否以有效的 ISOBMFF box 开头（ftyp/moof/moov/styp/msix）
-  function isValidMp4Start(data) {
-    if (data.length < 8) return false;
+  // 检查数据是否以有效的 ISOBMFF box 开头（ftyp/moof/moov/styp/msix/emsg）
+  // 或 TS 流同步字节 0x47
+  function isValidMediaData(data) {
+    if (data.length < 4) return false;
+    // TS 流以 0x47 同步字节开头
+    if (data[0] === 0x47) return true;
+    // ISOBMFF box
     const sz = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
     if (sz < 8 || sz > data.length) return false;
     const t = String.fromCharCode(data[4], data[5], data[6], data[7]);
@@ -399,25 +403,38 @@
     return bytes;
   }
 
+  // 限制 mainWorldFetch 并发数（chrome.scripting.executeScript 有并发上限）
+  let _mwRunning = 0;
+  const MW_CONCURRENCY = 3;
+
   async function fetchSeg(url) {
-    // 先尝试 mainWorldFetch
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    // 优先 proxyFetch（不受浏览器注入限制，适合批量下载）
     try {
-      const d = await mainWorldFetch(url);
-      if (d.length < 8 || !isValidMp4Start(d)) throw new Error("非有效 MP4 片段 (" + d.length + "B)");
-      return d;
-    } catch (e1) {
-      // 再尝试 proxyFetch
-      try {
-        const d = await new Promise((res, rej) => {
-          chrome.runtime.sendMessage({ action: "proxyFetch", url, referer: currentPageOrigin || "" }, r => {
-            if (chrome.runtime.lastError) { rej(new Error(chrome.runtime.lastError.message)); return; }
-            if (!r || !r.success) { rej(new Error(r ? r.error : "代理失败")); return; }
-            const bin = atob(r.data); const b = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); res(b);
-          });
+      const d = await new Promise((res, rej) => {
+        chrome.runtime.sendMessage({ action: "proxyFetch", url, referer: currentPageOrigin || "" }, r => {
+          if (chrome.runtime.lastError) { rej(new Error(chrome.runtime.lastError.message)); return; }
+          if (!r || !r.success) { rej(new Error(r ? r.error : "代理失败")); return; }
+          const bin = atob(r.data); const b = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); res(b);
         });
-        if (d.length < 8 || !isValidMp4Start(d)) throw new Error("非有效 MP4 片段 (" + d.length + "B)");
+      });
+      clearTimeout(timeout);
+      if (d.length < 4) throw new Error("空响应");
+      return d;
+    } catch (proxyErr) {
+      // proxyFetch 失败，尝试 mainWorldFetch（受并发限制）
+      while (_mwRunning >= MW_CONCURRENCY) await new Promise(r => setTimeout(r, 100));
+      _mwRunning++;
+      try {
+        const d = await mainWorldFetch(url);
+        clearTimeout(timeout);
+        if (d.length < 4) throw new Error("空响应");
         return d;
-      } catch { throw new Error(e1.message); }
+      } finally {
+        _mwRunning--;
+      }
     }
   }
 
@@ -454,15 +471,45 @@
 
   async function downloadStreamData(resource, label) {
     const segs = resource._segments || [];
+    if (!segs.length) throw new Error(label + "无片段");
+    // 片段数多时并发下载
+    if (segs.length > 5) {
+      addLog(label + " " + segs.length + " 片段，并发下载...");
+      const CONCURRENCY = 5;
+      const bufs = new Array(segs.length);
+      let failed = 0;
+      let nextIdx = 0;
+      const self = this;
+      async function worker() {
+        while (nextIdx < segs.length) {
+          const i = nextIdx++;
+          try { bufs[i] = await fetchSeg(segs[i]); }
+          catch (e) { failed++; }
+          const done = bufs.filter(b => b !== undefined).length;
+          updateProgress(done, segs.length);
+        }
+      }
+      const workers = [];
+      for (let w = 0; w < Math.min(CONCURRENCY, segs.length); w++) workers.push(worker());
+      await Promise.all(workers);
+      const validBufs = bufs.filter(b => b !== undefined);
+      if (!validBufs.length) throw new Error(label + "无可用片段");
+      const len = validBufs.reduce((s, b) => s + b.length, 0);
+      const out = new Uint8Array(len);
+      let off = 0;
+      for (const b of validBufs) { out.set(b, off); off += b.length; }
+      addLog(label + "下载完成 " + (len / 1024 / 1024).toFixed(1) + "MB" + (failed ? " (" + failed + " 失败)" : ""));
+      return out;
+    }
+    // 少量片段串行下载
     const bufs = [];
     let failed = 0;
-    const total = segs.length;
-    for (let i = 0; i < total; i++) {
+    for (let i = 0; i < segs.length; i++) {
       try { bufs.push(await fetchSeg(segs[i])); }
       catch (e) { failed++; addLog(label + " 片段 " + (i + 1) + " 失败: " + e.message); }
-      updateProgress(i + 1, total);
+      updateProgress(i + 1, segs.length);
     }
-    if (bufs.length === 0) throw new Error(label + "无可用片段");
+    if (!bufs.length) throw new Error(label + "无可用片段");
     const len = bufs.reduce((s, b) => s + b.length, 0);
     const out = new Uint8Array(len);
     let off = 0;
@@ -519,16 +566,31 @@
       if (!p.segments.length) { addLog("清单中无片段"); isDownloading = false; return; }
       setPanelTitle("HLS 下载 (" + p.segments.length + " 片段)");
       addLog("下载 " + p.segments.length + " 个片段...");
-      const kc = new Map(); const bufs = []; let fl = 0;
-      for (let i = 0; i < p.segments.length; i++) {
-        try {
-          let d = await fetchSeg(p.segments[i].url);
-          if (p.segments[i].key?.uri) { if (!kc.has(p.segments[i].key.uri)) kc.set(p.segments[i].key.uri, await fetchSeg(p.segments[i].key.uri)); d = await aesDec(d, kc.get(p.segments[i].key.uri), p.segments[i].key.iv || new Uint8Array(16)); }
-          bufs.push(d);
-        } catch (e) { fl++; }
-        updateProgress(i + 1, p.segments.length);
+      const kc = new Map(); const bufs = new Array(p.segments.length); let fl = 0;
+      // 并发下载（限制并发数避免浏览器注入限制）
+      const CONCURRENCY = 5;
+      let nextIdx = 0;
+      async function worker() {
+        while (nextIdx < p.segments.length) {
+          const i = nextIdx++;
+          try {
+            let d = await fetchSeg(p.segments[i].url);
+            if (p.segments[i].key?.uri) {
+              if (!kc.has(p.segments[i].key.uri)) kc.set(p.segments[i].key.uri, await fetchSeg(p.segments[i].key.uri));
+              d = await aesDec(d, kc.get(p.segments[i].key.uri), p.segments[i].key.iv || new Uint8Array(16));
+            }
+            bufs[i] = d;
+          } catch (e) { fl++; }
+          const done = bufs.filter(b => b !== undefined).length;
+          updateProgress(done, p.segments.length);
+        }
       }
-      await saveBufs(bufs, "video/mp2t", ".ts", fl);
+      const workers = [];
+      for (let w = 0; w < Math.min(CONCURRENCY, p.segments.length); w++) workers.push(worker());
+      await Promise.all(workers);
+      // 过滤掉未下载的片段
+      const validBufs = bufs.filter(b => b !== undefined);
+      await saveBufs(validBufs, "video/mp2t", ".ts", fl);
     } catch (e) { addLog("错误: " + e.message); setPanelTitle("失败"); }
     finally { isDownloading = false; }
   }
@@ -538,13 +600,35 @@
   async function saveBufs(bufs, mime, ext, failed) {
     if (!bufs.length) { addLog("无可用片段"); return; }
     const len = bufs.reduce((s, b) => s + b.length, 0);
+    addLog("合并 " + bufs.length + " 个片段 (" + (len / 1024 / 1024).toFixed(1) + "MB)...");
     const m = new Uint8Array(len); let o = 0; for (const b of bufs) { m.set(b, o); o += b.length; }
-    const blob = new Blob([m], { type: mime });
-    const bu = URL.createObjectURL(blob);
-    chrome.downloads.download({ url: bu, filename: "media-sniffer/video_" + Date.now() + ext, conflictAction: "uniquify" }, () => {
-      addLog("完成! " + (len / 1024 / 1024).toFixed(1) + "MB" + (failed ? " (" + failed + " 失败)" : "")); setPanelTitle("下载完成");
-      setTimeout(() => URL.revokeObjectURL(bu), 120000);
-    });
+    try {
+      const blob = new Blob([m], { type: mime });
+      const bu = URL.createObjectURL(blob);
+      const filename = "media-sniffer/video_" + Date.now() + ext;
+      chrome.downloads.download({ url: bu, filename, conflictAction: "uniquify" }, (dlId) => {
+        if (chrome.runtime.lastError) {
+          addLog("下载保存失败: " + chrome.runtime.lastError.message);
+        } else {
+          addLog("完成! " + (len / 1024 / 1024).toFixed(1) + "MB" + (failed ? " (" + failed + " 失败)" : ""));
+        }
+        setPanelTitle("下载完成");
+        setTimeout(() => URL.revokeObjectURL(bu), 120000);
+      });
+    } catch (e) {
+      addLog("保存失败: " + e.message + "，尝试直接保存...");
+      // fallback: 使用 chrome.downloads 直接下载
+      const blob = new Blob([m], { type: mime });
+      const reader = new FileReader();
+      reader.onload = () => {
+        const bu = reader.result;
+        chrome.downloads.download({ url: bu, filename: "media-sniffer/video_" + Date.now() + ext, conflictAction: "uniquify" }, () => {
+          addLog("完成! " + (len / 1024 / 1024).toFixed(1) + "MB");
+          setPanelTitle("下载完成");
+        });
+      };
+      reader.readAsDataURL(blob);
+    }
   }
 
   // =========================================================
@@ -601,9 +685,8 @@
         // 去重：同一个 URL 不重复加入
         if (!stream._segments.includes(r.url)) stream._segments.push(r.url);
       } else if (r.category === "ts-segment") {
-        const p = getPrefix(r.url);
-        if (!tsMap.has(p)) tsMap.set(p, { url: r.url, type: "video", source: "network", category: "video-stream", _segments: [], _streamLabel: "TS 流" });
-        tsMap.get(p)._segments.push(r.url);
+        // TS 流片段拼接后无法直接播放，对用户无用，跳过
+        continue;
       } else {
         result.push(r);
       }
