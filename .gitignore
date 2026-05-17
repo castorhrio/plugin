@@ -55,7 +55,7 @@ coverage/
 # TypeScript
 *.tsbuildinfo
 
-# OpenCode config (contains API keys)
-opencode.json
-opencode.jsonc
-models.json
+# Archive / backup
+*.zip
+*.tar.gz
+*.rar
