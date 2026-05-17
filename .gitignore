@@ -54,8 +54,3 @@ coverage/
 
 # TypeScript
 *.tsbuildinfo
-
-# OpenCode config 
-opencode.json
-opencode.jsonc
-models.json
