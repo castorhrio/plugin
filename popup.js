@@ -381,13 +381,12 @@
       world: "MAIN",
       func: (u) => fetch(u).then(r => {
         if (!r.ok) return { error: "HTTP " + r.status };
-        const ct = r.headers.get("content-type") || "";
-        if (ct.includes("text/html") || ct.includes("text/xml")) return { error: "非媒体类型: " + ct };
         return r.arrayBuffer().then(b => {
           const x = new Uint8Array(b);
           let s = "";
           for (let i = 0; i < x.length; i += 8192)
             s += String.fromCharCode.apply(null, x.subarray(i, i + 8192));
+          const ct = r.headers.get("content-type") || "";
           return { data: btoa(s), size: x.length, ct };
         });
       }).catch(e => ({ error: e.message })),
@@ -652,10 +651,10 @@
       try { currentPageOrigin = new URL(tab.url).origin; } catch { currentPageOrigin = ""; }
 
       const cr = await new Promise(r => chrome.tabs.sendMessage(tab.id, { action: "scanMedia" }, res => r(chrome.runtime.lastError ? { resources: [] } : res || { resources: [] })));
-      const vr = await new Promise(r => chrome.runtime.sendMessage({ action: "getVideoResources", pageUrl: tab.url }, res => r(chrome.runtime.lastError ? { videos: [] } : res || { videos: [] })));
+      const vr = await new Promise(r => chrome.runtime.sendMessage({ action: "getAllResources", pageUrl: tab.url }, res => r(chrome.runtime.lastError ? { resources: [] } : res || { resources: [] })));
 
       // 合并时优先使用带有 category 的资源（来自 background.js 网络拦截）
-      const allMerged = [...cr.resources, ...vr.videos];
+      const allMerged = [...cr.resources, ...(vr.resources || [])];
       const urlMap = new Map();
       for (const r of allMerged) {
         const existing = urlMap.get(r.url);
@@ -732,10 +731,24 @@
 
   // 验证 URL 是否指向真正的媒体文件（排除 .webmask 等误判）
   const REAL_MEDIA_EXTS = /\.(mp4|webm|mov|flv|mkv|avi|m4v|mp3|wav|ogg|aac|flac|m4a|wma|opus|m3u8|mpd|ts|m4s)(\?|$)/i;
+  // Site-specific CDN patterns that are valid media URLs
+  const SITE_CDN_PATTERNS = [
+    /cdninstagram\.com\/v\/t\d+\.\d+-\d+\//i,
+    /fbcdn\.net\/v\/t\d+\.\d+-\d+\//i,
+    /twimg\.com\/media\//i,
+    /pbs\.twimg\.com\/media\//i,
+    /video\.twimg\.com\//i,
+  ];
   function isRealMediaUrl(url) {
     if (!url) return false;
     if (REAL_MEDIA_EXTS.test(url)) return true;
-    if (url.includes("/videoplayback")) return true;
+    // X/Twitter: ?format=jpg style
+    try {
+      const format = new URL(url).searchParams.get("format");
+      if (format && /^(jpg|jpeg|png|gif|webp|mp4|webm|mov|mp3|wav|ogg|aac|flac|m4a)$/i.test(format)) return true;
+    } catch {}
+    // Site-specific CDN patterns
+    if (SITE_CDN_PATTERNS.some(p => p.test(url))) return true;
     return false;
   }
 
@@ -900,21 +913,56 @@
     }).join("");
   }
 
-  function getFilename(u) { try { return decodeURIComponent(new URL(u).pathname.split("/").pop() || "") || new URL(u).hostname; } catch { return u.substring(0, 40); } }
+  function getFilename(u) {
+    try {
+      const urlObj = new URL(u);
+      // X/Twitter style: ?format=jpg&name=large → use format as extension
+      const format = urlObj.searchParams.get("format");
+      if (format) {
+        const pathPart = decodeURIComponent(urlObj.pathname.split("/").filter(Boolean).pop() || "media");
+        return pathPart + "." + format.toLowerCase();
+      }
+      const pathSegments = urlObj.pathname.split("/").filter(Boolean);
+      const pathFile = decodeURIComponent(pathSegments.pop() || "");
+      // Instagram CDN: no extension in filename → add based on URL patterns
+      if (pathFile && !pathFile.includes(".")) {
+        if (u.includes(".mp4")) return pathFile + ".mp4";
+        if (u.includes("cdninstagram.com") || u.includes("fbcdn.net")) return pathFile + ".jpg";
+        return pathFile;
+      }
+      // Path ending with / (empty pop) → use last non-empty segment
+      if (!pathFile) {
+        const lastSeg = decodeURIComponent(pathSegments.pop() || "media");
+        if (u.includes("cdninstagram.com") || u.includes("fbcdn.net")) return lastSeg + ".jpg";
+        return lastSeg;
+      }
+      return pathFile || urlObj.hostname;
+    } catch { return u.substring(0, 40); }
+  }
   function esc(s) { return s ? s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;") : ""; }
+
+  // Check if URL requires authenticated fetch (CDN that blocks direct downloads)
+  function needsAuthFetch(url) {
+    if (!url) return false;
+    const l = url.toLowerCase();
+    return l.includes("cdninstagram.com") || l.includes("fbcdn.net") ||
+      l.includes("googlevideo.com");
+  }
 
   async function doDownload(r) {
     if (!r?.url) return;
     const isStream = r.category === "video-stream" || r.category === "paired-stream" || r.category === "manifest" || r.category === "dash";
     if (isStream) return; // 流媒体走专门的下载流程
-    // 对于视频文件，使用proxyFetch确保带Referer/Cookie下载完整内容
-    if (r.type === "video" || r.type === "audio") {
+    // 对于视频/音频文件，或需要认证的CDN图片，使用proxyFetch确保带Referer/Cookie下载完整内容
+    if (r.type === "video" || r.type === "audio" || needsAuthFetch(r.url)) {
       if (isDownloading) return;
       isDownloading = true;
       showPanel("下载中...");
       try {
         const data = await fetchSeg(r.url);
-        saveBlob(data, getFilename(r.url), r.type === "video" ? "video/mp4" : "audio/mpeg", r.url.match(/\.\w+(\?|$)/)?.[0]?.replace("?", "") || (r.type === "video" ? ".mp4" : ".mp3"));
+        const ext = guessExt(r.url, r.type);
+        const mimeType = r.type === "image" ? "image/jpeg" : r.type === "video" ? "video/mp4" : "audio/mpeg";
+        saveBlob(data, getFilename(r.url), mimeType, ext);
       } catch (e) {
         // fallback: 直接URL下载
         addLog("带认证下载失败，尝试直接下载: " + e.message);
@@ -924,8 +972,58 @@
     }
     chrome.downloads.download({ url: r.url, filename: genFn(r), conflictAction: "uniquify" });
   }
+
+  // Guess file extension from URL or type
+  function guessExt(url, type) {
+    // Check URL path for known extensions
+    const extMatch = url.match(/\.(jpg|jpeg|png|gif|webp|mp4|webm|mov|mp3|wav|ogg|aac|flac|m4a|avif)(\?|$)/i);
+    if (extMatch) return "." + extMatch[1].toLowerCase();
+    // Check ?format= param (X/Twitter)
+    try {
+      const format = new URL(url).searchParams.get("format");
+      if (format) return "." + format.toLowerCase();
+    } catch {}
+    // Fallback by type
+    if (type === "image") return ".jpg";
+    if (type === "video") return ".mp4";
+    if (type === "audio") return ".mp3";
+    return ".mp4";
+  }
   function genFn(r) {
-    try { let f = decodeURIComponent(new URL(r.url).pathname.split("/").pop() || ""); if (!f.includes(".")) f += "." + (r.url.match(/\.(jpg|jpeg|png|gif|webp|mp4|webm|mov|mp3|wav|ogg|aac|flac|m3u8|mpd|m4s|ts)(\?|$)/i)?.[1] || "mp4"); f = f.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_"); return "media-sniffer/" + (r.type === "image" ? "img" : "video") + "_" + f; }
+    try {
+      let u;
+      try { u = new URL(r.url); } catch { u = null; }
+      const ext = guessExt(r.url, r.type);
+      if (u) {
+        // X/Twitter style: ?format=jpg
+        const format = u.searchParams.get("format");
+        if (format) {
+          let f = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() || "media");
+          f += "." + format.toLowerCase();
+          f = f.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+          return "media-sniffer/" + (r.type === "image" ? "img" : "video") + "_" + f;
+        }
+        // Instagram CDN: path like /v/t51.2885-15/... (no file extension, may end with /)
+        const pathSegments = u.pathname.split("/").filter(Boolean);
+        const pathFile = pathSegments.pop() || "";
+        if (pathFile && !pathFile.includes(".")) {
+          let f = pathFile.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+          f += ext;
+          return "media-sniffer/" + (r.type === "image" ? "img" : "video") + "_" + f;
+        }
+        if (!pathFile) {
+          // Path ends with /, use last non-empty segment
+          const lastSeg = pathSegments.pop() || "media";
+          let f = lastSeg.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+          f += ext;
+          return "media-sniffer/" + (r.type === "image" ? "img" : "video") + "_" + f;
+        }
+      }
+      let f = decodeURIComponent((u || new URL(r.url)).pathname.split("/").filter(Boolean).pop() || "media");
+      if (!f.includes(".")) f += ext;
+      f = f.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+      return "media-sniffer/" + (r.type === "image" ? "img" : "video") + "_" + f;
+    }
     catch { return "media-sniffer/" + r.type + "_" + Date.now() + ".mp4"; }
   }
 
